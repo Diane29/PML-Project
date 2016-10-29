@@ -1,0 +1,92 @@
+---
+title: "Practical Machine Learning Final Project"
+author: "D. Jones"
+date: "October 28, 2016"
+output: html_document
+keep_md: yes
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=7, fig.height=5,echo=TRUE)
+```
+
+#Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+We will predict the manner in which the individuals did the exercises using the "classe" variable in the training set. A report is then created describing how the model is built, how it was cross-validated, the expected out of sample error, and reasons for the decisions made in the project. The prediction model will then be used to predict 20 different test cases. The following describes the classes of exercises to be predicted in the models using the variable "classe":
+  .Class A: exactly according to the specification
+  .Class B: throwing the elbows to the front
+  .Class C: lifting the dumbbell only halfway
+  .Class D: lowering the dumbbell only half way
+  .Class E: throwing the hips to the front.
+
+
+#Loading the Data
+```{r}
+library(caret)
+rm(list = ls())
+if (!file.exists("pml-training.csv")) {
+  download.file("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "pml-training.csv")
+}
+if (!file.exists("pml-testing.csv")) {
+  download.file("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pml-testing.csv")
+}
+pml_train <- read.csv("pml-training.csv", sep = ",", na.strings = c("", "NA"))  
+pml_test <- read.csv("pml-testing.csv", sep = ",", na.strings = c("", "NA"))
+dim(pml_train)
+dim(pml_test)
+#colnames(pml_train)==colnames(pml_test)
+```
+The datasets consist of 160 variables. The data shows that many of the variables are not informative and will be deleted from the datasets. Also, check to make sure the Training and Testing dataset has the same columns.
+
+#Processing the Training Dataset
+```{r}
+features <- names(pml_train[,colSums(is.na(pml_train)) == 0])
+featTest <- names(pml_test[,colSums(is.na(pml_test)) == 0])
+pmlTrain <- pml_train[,features]
+pmlTest <- pml_test[,featTest]
+pmlMod <-  pmlTrain[, -c(1:7)]
+pmlTest <-  pmlTest[, -c(1:7)]
+dim(pmlMod); dim(pmlTest)
+#colnames(pmlMod)
+```
+The variables that do not have NA values are used as the predictors in the model. An additional 7 variables are removed from the datasets that would not be useful in explaining the model such as username and the timestamp variables. The dataset now contains 52 variables to be modeled against the "classe" variable.
+
+
+#Partitioning the Training Dataset
+```{r}
+set.seed(4631) 
+inTrain <- createDataPartition(pmlMod$classe, p = 0.6, list = FALSE)
+pmlModTrain <- pmlMod[inTrain, ]
+pmlModValid <- pmlMod[-inTrain, ]
+dim(pmlModTrain); dim(pmlModValid)
+```
+The training dataset is partitioned into 60/40 split in order to have a decent dataset to do the cross-validation. 
+
+#Prediction using Rpart Decision Tree
+```{r}
+library(rattle); library(rpart); library(rpart.plot)
+trainCtrl<- trainControl(method="repeatedcv", number=3)
+modFitpml <- train(classe ~ ., trControl=trainCtrl, preProc = c("center", "scale"),method="rpart",data =pmlModTrain)
+
+par(mar=c(3.1,3.1,3.1,3.1))
+fancyRpartPlot(modFitpml$finalModel)
+predClass <- predict(modFitpml,newdata=pmlModValid)
+confusionMatrix(pmlModValid$classe,predClass)
+```
+
+The Rpart function is used for the initial model with a repeated 10-fold cross-validation. The accuracy of the model is 49.6% with an expected out-of-sample error rate of 50.4%. This means that the model is not very good. A Random Forest model will be used instead because it uses multiple models for better performance.
+
+#Prediction using Random Forest
+```{r}
+library(randomForest)
+modFitpmlRF <- randomForest(classe ~. ,data=pmlModTrain, method="class")
+predictRF <- predict(modFitpmlRF, pmlModValid, type="class")
+predTest <- predict(modFitpmlRF, pmlTest, type = "class")
+confusionMatrix(predictRF, pmlModValid$classe)
+plot(modFitpmlRF)
+```
+
+The random forest model gives an accuracy rate of 99.3% using all the 53 variables in the testing dataset. This results in an expected out-of-sample error rate of 0.7% indicating a very good model. The plot of the model fit shows that as the number of trees increase the error rate decreases. The model requires a lot of computationtal time so this is not the most efficient model. However, the random forest method reduces overfitting and is good for nonlinear features. The model is used on the test dataset to predict the 20 cases.
+
